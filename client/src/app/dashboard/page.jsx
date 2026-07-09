@@ -17,7 +17,7 @@ export default function DashboardPage() {
       jobseeker: "/dashboard/jobseeker",
       handyman: "/dashboard/handyman",
       employer: "/dashboard/employer",
-      admin: "/dashboard/admin",
+      admin: "/dashboard-admin",
     };
     router.replace(routes[user.role] || "/login");
   }, [user, loading, router]);

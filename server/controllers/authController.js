@@ -6,6 +6,11 @@ import Jobnode from "../models/Jobnode.js";
 import Handyman from "../models/Handyman.js";
 import Employer from "../models/Employer.js";
 import EmailToken from "../models/EmailToken.js";
+import Session from "../models/Session.js";
+import Notification from "../models/Notification.js";
+import JobseekerApplication from "../models/JobseekerApplication.js";
+import JobModel from "../models/job.model.js";
+import { parseDevice } from "../utils/deviceParser.js";
 import {
   sendVerificationEmail,
   sendPasswordResetEmail,
@@ -77,8 +82,11 @@ const findUserById = async (id, role) => {
   }
 };
 
-/** Issue JWT and set httpOnly cookie */
-const issueToken = (res, user) => {
+const hashToken = (token) =>
+  crypto.createHash("sha256").update(token).digest("hex");
+
+/** Issue JWT, set the httpOnly cookie, and record a Session for the sessions UI */
+const issueToken = async (req, res, user) => {
   const token = jwt.sign(
     { id: user._id, role: user.role },
     process.env.JWT_SECRET,
@@ -91,6 +99,24 @@ const issueToken = (res, user) => {
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   });
+
+  try {
+    const userAgent = req.headers["user-agent"] || "";
+    const { device, browser } = parseDevice(userAgent);
+    await Session.create({
+      userId: user._id,
+      userModel: docToUserModel(user),
+      tokenHash: hashToken(token),
+      userAgent,
+      ip: req.ip || "",
+      device,
+      browser,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+  } catch (err) {
+    // Session tracking is a UX nicety — never block login/signup over it.
+    console.error("⚠️  Session record failed (non-fatal):", err.message);
+  }
 
   return token;
 };
@@ -175,7 +201,7 @@ export const signup2 = async (req, res) => {
     }
 
     // ── Issue JWT cookie ────────────────────────────────────────────────────
-    issueToken(res, created);
+    await issueToken(req, res, created);
 
     // ── Send verification email (fire-and-forget — never blocks the response)
     try {
@@ -239,7 +265,7 @@ export const login = async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    issueToken(res, user);
+    await issueToken(req, res, user);
 
     return res.status(200).json({
       message: "Login successful",
@@ -269,7 +295,16 @@ export const getMe = async (req, res) => {
 };
 
 // ── POST /api/auth/logout ─────────────────────────────────────────────────────
-export const logout = (req, res) => {
+export const logout = async (req, res) => {
+  try {
+    const currentToken = req.cookies?.token;
+    if (currentToken) {
+      await Session.deleteOne({ tokenHash: hashToken(currentToken) });
+    }
+  } catch (err) {
+    console.error("⚠️  Session cleanup on logout failed (non-fatal):", err.message);
+  }
+
   res.clearCookie("token", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -381,8 +416,8 @@ export const resetPassword = async (req, res) => {
     user.password = await bcrypt.hash(password, 12);
     await user.save();
 
-    // Delete the used token (one-time use)
-    await tokenDoc.deleteOne();
+    // Delete the used token (one-time use) and sign the account out everywhere
+    await Promise.all([tokenDoc.deleteOne(), Session.deleteMany({ userId: user._id })]);
 
     return res.status(200).json({ message: "Password updated successfully." });
   } catch (err) {
@@ -521,9 +556,121 @@ export const changePassword = async (req, res) => {
     user.password = await bcrypt.hash(newPassword, 12);
     await user.save();
 
+    // Sign out every other session — keep the one making this request alive
+    const currentToken = req.cookies?.token || req.headers["authorization"]?.split(" ")[1];
+    const currentHash = currentToken ? hashToken(currentToken) : null;
+    await Session.deleteMany({ userId: id, tokenHash: { $ne: currentHash } });
+
     return res.status(200).json({ message: "Password updated successfully." });
   } catch (err) {
     console.error("❌ changePassword:", err);
     res.status(500).json({ message: "Server error. Please try again." });
+  }
+};
+
+// ── GET /api/auth/sessions ────────────────────────────────────────────────────
+export const getSessions = async (req, res) => {
+  try {
+    const { id } = req.user;
+    const currentToken = req.cookies?.token || req.headers["authorization"]?.split(" ")[1];
+    const currentHash = currentToken ? hashToken(currentToken) : null;
+
+    const sessions = await Session.find({
+      userId: id,
+      revoked: false,
+      expiresAt: { $gt: new Date() },
+    })
+      .sort({ lastSeenAt: -1 })
+      .lean();
+
+    return res.status(200).json({
+      sessions: sessions.map((s) => ({
+        id: s._id,
+        device: s.device,
+        browser: s.browser,
+        ip: s.ip,
+        createdAt: s.createdAt,
+        lastSeenAt: s.lastSeenAt,
+        isCurrent: s.tokenHash === currentHash,
+      })),
+    });
+  } catch (err) {
+    console.error("❌ getSessions:", err);
+    res.status(500).json({ message: "Failed to load sessions" });
+  }
+};
+
+// ── DELETE /api/auth/sessions/:sessionId — revoke one other session ──────────
+export const revokeSession = async (req, res) => {
+  try {
+    const { id } = req.user;
+    const { sessionId } = req.params;
+
+    const session = await Session.findOneAndDelete({ _id: sessionId, userId: id });
+    if (!session) return res.status(404).json({ message: "Session not found" });
+
+    return res.status(200).json({ message: "Session revoked" });
+  } catch (err) {
+    console.error("❌ revokeSession:", err);
+    res.status(500).json({ message: "Failed to revoke session" });
+  }
+};
+
+// ── DELETE /api/auth/sessions — revoke every OTHER session ────────────────────
+export const revokeAllOtherSessions = async (req, res) => {
+  try {
+    const { id } = req.user;
+    const currentToken = req.cookies?.token || req.headers["authorization"]?.split(" ")[1];
+    const currentHash = currentToken ? hashToken(currentToken) : null;
+
+    await Session.deleteMany({ userId: id, tokenHash: { $ne: currentHash } });
+    return res.status(200).json({ message: "Signed out of all other sessions" });
+  } catch (err) {
+    console.error("❌ revokeAllOtherSessions:", err);
+    res.status(500).json({ message: "Failed to revoke sessions" });
+  }
+};
+
+// ── DELETE /api/auth/account  { password } ────────────────────────────────────
+// Permanently deletes the account and its directly-owned records. Verifies the
+// current password first since this is irreversible.
+export const deleteAccount = async (req, res) => {
+  try {
+    const { id, role } = req.user;
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ message: "Password is required" });
+    }
+
+    const Model = { jobseeker: Jobnode, handyman: Handyman, employer: Employer }[role];
+    if (!Model) return res.status(400).json({ message: "Invalid account type" });
+
+    const user = await Model.findById(id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ message: "Incorrect password" });
+
+    await Promise.all([
+      Session.deleteMany({ userId: id }),
+      EmailToken.deleteMany({ userId: id }),
+      Notification.deleteMany({ recipientId: id }),
+      JobseekerApplication.deleteMany({ jobseeker: id }),
+      role === "employer" ? JobModel.deleteMany({ company: id }) : Promise.resolve(),
+    ]);
+
+    await Model.findByIdAndDelete(id);
+
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    });
+
+    return res.status(200).json({ message: "Account deleted successfully" });
+  } catch (err) {
+    console.error("❌ deleteAccount:", err);
+    res.status(500).json({ message: "Failed to delete account" });
   }
 };

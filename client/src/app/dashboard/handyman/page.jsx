@@ -96,7 +96,7 @@ export default function HandymanDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API}/api/handyman/jobs`, { credentials: "include" })
+    fetch(`${API}/api/jobs?jobFor=handyman&limit=20`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => {
         // Handle: plain array, { jobs: [] }, { data: [] }, or error object

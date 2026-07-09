@@ -248,6 +248,11 @@ export default function JobseekerProfilePage() {
   };
 
   const save = async () => {
+    if (modal === "work" && (!fc.jobTitle?.trim() || !fc.company?.trim() || !fc.startDate)) {
+      notify("Job title, company and start date are required", "error");
+      return;
+    }
+
     setSaving(true);
     try {
       let url,
@@ -930,7 +935,7 @@ export default function JobseekerProfilePage() {
           loading={saving}
         >
           <div className="space-y-4">
-            <Field label="Job Title">
+            <Field label="Job Title *">
               <input
                 value={fc.jobTitle || ""}
                 onChange={(e) => set("jobTitle", e.target.value)}
@@ -938,7 +943,7 @@ export default function JobseekerProfilePage() {
                 placeholder="e.g. Frontend Developer"
               />
             </Field>
-            <Field label="Company">
+            <Field label="Company *">
               <input
                 value={fc.company || ""}
                 onChange={(e) => set("company", e.target.value)}
@@ -947,7 +952,7 @@ export default function JobseekerProfilePage() {
               />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Start Date">
+              <Field label="Start Date *">
                 <input
                   type="date"
                   value={fc.startDate || ""}

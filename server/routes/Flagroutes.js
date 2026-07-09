@@ -5,6 +5,7 @@ import {
   getFlags,
   resolveFlag,
   getPendingCount,
+  deleteFlag,
 } from "../controllers/flagController.js";
 import { verifyToken } from "../middlewares/auth.js";
 
@@ -16,5 +17,6 @@ router.post("/", createFlag);
 router.get("/", getFlags);
 router.get("/count", getPendingCount);
 router.patch("/:id/resolve", resolveFlag);
+router.delete("/:id", deleteFlag);
 
 export default router;

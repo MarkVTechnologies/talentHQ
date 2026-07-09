@@ -211,13 +211,28 @@ export default function AddHandymanPage() {
         yearsExperience: Number(form.yearsExperience) || 0,
       };
       delete payload.confirmPassword;
-      const res = await fetch(`${API}/api/auth/signup`, {
+
+      // signup2 only creates the account with fullName/email/password/role/
+      // skills/location — the rest of this form's fields are then patched on
+      // via the existing superadmin update endpoint.
+      const res = await fetch(`${API}/api/auth/signup2`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed");
+
+      const superadminToken = localStorage.getItem("superadminToken");
+      await fetch(`${API}/api/superadmin/users/${data.user._id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${superadminToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
       notify("Handyman created successfully!");
       setTimeout(() => router.push("/dashboard-admin"), 1500);
     } catch (err) {

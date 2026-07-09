@@ -97,37 +97,37 @@ const NAV = [
     id: "verification",
     label: "Verification",
     icon: ShieldCheck,
-    href: "/admin/employer-verification",
+    href: "/dashboard-admin/employer-verification",
   },
   {
     id: "reports",
     label: "Reports",
     icon: Flag,
     children: [
-      { label: "Reported Users", href: "/admin/reports/users", icon: Users },
-      { label: "Reported Jobs", href: "/admin/reports/jobs", icon: Briefcase },
+      { label: "Reported Users", href: "/dashboard-admin/reports/users", icon: Users },
+      { label: "Reported Jobs", href: "/dashboard-admin/reports/jobs", icon: Briefcase },
     ],
   },
   {
     id: "announcements",
     label: "Announcements",
     icon: Megaphone,
-    href: "/admin/announcements",
+    href: "/dashboard-admin/announcements",
   },
   {
     id: "analytics",
     label: "Analytics",
     icon: BarChart3,
     children: [
-      { label: "User Analytics", href: "/admin/stats/users", icon: Users },
-      { label: "Job Analytics", href: "/admin/stats/jobs", icon: TrendingUp },
+      { label: "User Analytics", href: "/dashboard-admin/stats/users", icon: Users },
+      { label: "Job Analytics", href: "/dashboard-admin/stats/jobs", icon: TrendingUp },
     ],
   },
   {
     id: "settings",
     label: "Settings",
     icon: Settings,
-    href: "/admin/settings/profile",
+    href: "/dashboard-admin/settings/profile",
   },
 ];
 

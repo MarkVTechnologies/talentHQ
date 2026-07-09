@@ -45,7 +45,11 @@ export const getFlags = async (req, res) => {
     const { status = "pending", targetType, page = 1, limit = 30 } = req.query;
     const query = {};
     if (status !== "all") query.status = status;
-    if (targetType) query.targetType = targetType;
+    if (targetType) {
+      const types = targetType.split(",").map((t) => t.trim()).filter(Boolean);
+      if (types.length === 1) query.targetType = types[0];
+      else if (types.length > 1) query.targetType = { $in: types };
+    }
 
     const [flags, total] = await Promise.all([
       Flag.find(query)
@@ -106,5 +110,21 @@ export const getPendingCount = async (req, res) => {
     res.json({ count });
   } catch (err) {
     res.status(500).json({ count: 0 });
+  }
+};
+
+// ── DELETE /api/flags/:id — superadmin permanently deletes a report ──────────
+export const deleteFlag = async (req, res) => {
+  try {
+    if (req.user.role !== "superadmin") {
+      return res.status(403).json({ message: "Superadmin only" });
+    }
+
+    const flag = await Flag.findByIdAndDelete(req.params.id);
+    if (!flag) return res.status(404).json({ message: "Flag not found" });
+    res.json({ message: "Report deleted permanently" });
+  } catch (err) {
+    console.error("❌ deleteFlag:", err);
+    res.status(500).json({ message: "Failed to delete report" });
   }
 };

@@ -63,8 +63,8 @@ export default function Sidebar({ open, setOpen }) {
       { href: "/account/settings", label: "Account & Security", icon: Shield },
     ],
     admin: [
-      { href: "/dashboard/admin", label: "Overview" },
-      { href: "/dashboard/admin/users", label: "Manage Users" },
+      { href: "/dashboard-admin", label: "Overview" },
+      { href: "/dashboard-admin/candidates/employers", label: "Manage Users" },
     ],
   };
 

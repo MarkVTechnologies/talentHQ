@@ -253,13 +253,26 @@ export default function AddEmployerPage() {
       delete payload.confirmPassword;
       delete payload.agreeToTerms;
 
-      const res = await fetch(`${API}/api/auth/signup`, {
+      // signup2 creates the account with its core fields (name/email/password/
+      // companyName/companyWebsite); the rest of this form's fields are then
+      // patched on via the existing superadmin update endpoint.
+      const res = await fetch(`${API}/api/auth/signup2`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, role: "employer" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to create employer");
+
+      const superadminToken = localStorage.getItem("superadminToken");
+      await fetch(`${API}/api/superadmin/users/${data.user._id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${superadminToken}`,
+        },
+        body: JSON.stringify({ ...payload, role: "employer" }),
+      });
 
       notify("Employer created successfully!");
       setTimeout(() => router.push("/dashboard-admin"), 1500);

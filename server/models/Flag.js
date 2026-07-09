@@ -24,7 +24,7 @@ const flagSchema = new mongoose.Schema(
     },
     reporterRole: {
       type: String,
-      enum: ["jobseeker", "employer", "handyman"],
+      enum: ["jobseeker", "employer", "handyman", "superadmin"],
       required: true,
     },
 

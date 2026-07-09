@@ -32,6 +32,16 @@ const employerSchema = new mongoose.Schema(
     // Email verification (matches Jobnode + Handyman schemas)
     emailVerified: { type: Boolean, default: false },
 
+    // Employer identity verification (admin-reviewed, distinct from emailVerified)
+    verificationStatus: {
+      type: String,
+      enum: ["unverified", "pending", "verified", "rejected"],
+      default: "unverified",
+    },
+    verificationNote: { type: String, default: "" },
+    verifiedAt: { type: Date, default: null },
+    verifiedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+
     // OAuth (Google/LinkedIn) — required so a Jobnode→Employer migration during
     // social signup preserves the provider link. Without these, Mongoose drops
     // the fields on create and the OAuth account becomes unlinked.
@@ -54,6 +64,7 @@ employerSchema.index({ oauthProvider: 1, oauthId: 1 }, { sparse: true });
 employerSchema.index({ avgRating: -1 });
 employerSchema.index({ createdAt: -1 });
 employerSchema.index({ onboardingComplete: 1, createdAt: -1 });
+employerSchema.index({ verificationStatus: 1, createdAt: -1 });
 
 export default mongoose.models.Employer ||
   mongoose.model("Employer", employerSchema);

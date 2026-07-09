@@ -37,6 +37,7 @@ import flagRoutes from "./routes/Flagroutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import statsRoutes from "./routes/statsRoutes.js";
 import jobseekerRoutes from "./routes/jobseekerRoutes.js";
+import announcementRoutes from "./routes/announcementRoutes.js";
 
 const app = express();
 
@@ -149,13 +150,6 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "Too many requests. Please wait a few minutes." },
 });
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 15,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many login attempts. Please wait 15 minutes." },
-});
 const contactLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
@@ -180,9 +174,9 @@ app.get("/", (req, res) => {
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/api/auth", oauthRoutes);
-app.use("/api/superadmin", authLimiter, superAdminRoutes);
+app.use("/api/superadmin", superAdminRoutes);
 app.use("/api/contact", contactLimiter, contactRoutes);
 app.use("/api/superadmin", adminRoutes);
 app.use("/api/employers", employerRoutes);
@@ -197,6 +191,7 @@ app.use("/api/handymen", handymanRoutes);
 app.use("/api/jobseekers", jobseekerRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/flags", flagRoutes);
+app.use("/api/announcements", announcementRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/stats", statsRoutes);
 

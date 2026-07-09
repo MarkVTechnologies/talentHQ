@@ -109,6 +109,144 @@ export const createSuperAdmin = async (req, res) => {
   }
 };
 
+// GET /api/superadmin/admins — list every super admin account
+export const getAllSuperAdmins = async (req, res) => {
+  try {
+    const admins = await SuperAdmin.find()
+      .select("fullName email createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+    return res.json({ admins });
+  } catch (err) {
+    console.error("❌ getAllSuperAdmins:", err);
+    return res.status(500).json({ message: "Server error." });
+  }
+};
+
+// PATCH /api/superadmin/admins/:id  { fullName?, email? }
+// Name/email only — password changes for another account aren't exposed here;
+// an admin resets their own password via forgotPassword/resetPassword.
+export const updateSuperAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fullName, email } = req.body;
+    const updates = {};
+
+    if (fullName !== undefined) {
+      if (!fullName.trim()) return res.status(400).json({ message: "Name cannot be empty" });
+      updates.fullName = fullName.trim();
+    }
+    if (email !== undefined) {
+      const normalized = email.trim().toLowerCase();
+      if (!normalized) return res.status(400).json({ message: "Email cannot be empty" });
+      const existing = await SuperAdmin.findOne({ email: normalized, _id: { $ne: id } });
+      if (existing) return res.status(400).json({ message: "Email already in use" });
+      updates.email = normalized;
+    }
+
+    const admin = await SuperAdmin.findByIdAndUpdate(id, { $set: updates }, { new: true, runValidators: true })
+      .select("fullName email createdAt")
+      .lean();
+    if (!admin) return res.status(404).json({ message: "Admin not found" });
+    return res.json({ message: "Admin updated", admin });
+  } catch (err) {
+    console.error("❌ updateSuperAdmin:", err);
+    return res.status(500).json({ message: "Server error." });
+  }
+};
+
+// DELETE /api/superadmin/admins/:id
+export const deleteSuperAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (id === req.admin.id) {
+      return res.status(400).json({ message: "You cannot delete your own account here." });
+    }
+
+    const total = await SuperAdmin.countDocuments();
+    if (total <= 1) {
+      return res.status(400).json({ message: "Cannot delete the last remaining admin account." });
+    }
+
+    const admin = await SuperAdmin.findByIdAndDelete(id);
+    if (!admin) return res.status(404).json({ message: "Admin not found" });
+    return res.json({ message: "Admin removed" });
+  } catch (err) {
+    console.error("❌ deleteSuperAdmin:", err);
+    return res.status(500).json({ message: "Server error." });
+  }
+};
+
+// GET /api/superadmin/me — the logged-in admin's own profile
+export const getOwnProfile = async (req, res) => {
+  try {
+    const admin = await SuperAdmin.findById(req.admin.id).select("fullName email createdAt").lean();
+    if (!admin) return res.status(404).json({ message: "Admin not found" });
+    return res.json({ admin });
+  } catch (err) {
+    console.error("❌ getOwnProfile:", err);
+    return res.status(500).json({ message: "Server error." });
+  }
+};
+
+// PATCH /api/superadmin/me  { fullName?, email? }
+export const updateOwnProfile = async (req, res) => {
+  try {
+    const { fullName, email } = req.body;
+    const updates = {};
+
+    if (fullName !== undefined) {
+      if (!fullName.trim()) return res.status(400).json({ message: "Name cannot be empty" });
+      updates.fullName = fullName.trim();
+    }
+    if (email !== undefined) {
+      const normalized = email.trim().toLowerCase();
+      if (!normalized) return res.status(400).json({ message: "Email cannot be empty" });
+      const existing = await SuperAdmin.findOne({ email: normalized, _id: { $ne: req.admin.id } });
+      if (existing) return res.status(400).json({ message: "Email already in use" });
+      updates.email = normalized;
+    }
+
+    const admin = await SuperAdmin.findByIdAndUpdate(req.admin.id, { $set: updates }, { new: true, runValidators: true })
+      .select("fullName email createdAt")
+      .lean();
+    if (!admin) return res.status(404).json({ message: "Admin not found" });
+    return res.json({ message: "Profile updated", admin });
+  } catch (err) {
+    console.error("❌ updateOwnProfile:", err);
+    return res.status(500).json({ message: "Server error." });
+  }
+};
+
+// PATCH /api/superadmin/me/password  { currentPassword, newPassword }
+export const changeOwnPassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current and new password are required." });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: "New password must be at least 8 characters." });
+    }
+
+    const admin = await SuperAdmin.findById(req.admin.id);
+    if (!admin) return res.status(404).json({ message: "Admin not found" });
+
+    const isMatch = await bcrypt.compare(currentPassword, admin.password);
+    if (!isMatch) return res.status(401).json({ message: "Current password is incorrect." });
+
+    admin.password = await bcrypt.hash(newPassword, 10);
+    admin.refreshToken = ""; // invalidate other sessions, matching resetPassword's behavior
+    await admin.save();
+
+    return res.json({ message: "Password changed. Please log in again." });
+  } catch (err) {
+    console.error("❌ changeOwnPassword:", err);
+    return res.status(500).json({ message: "Server error." });
+  }
+};
+
 // POST /api/superadmin/login
 export const loginSuperAdmin = async (req, res) => {
   try {

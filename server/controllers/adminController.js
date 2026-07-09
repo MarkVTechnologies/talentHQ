@@ -312,6 +312,127 @@ export const deleteJobAdmin = async (req, res) => {
   }
 };
 
+// ── Employer identity verification queue ──────────────────────────────────────
+// An employer's `cacNumber` is self-declared at signup. `verificationStatus`
+// tracks whether an admin has actually reviewed it. Older employers who typed
+// a CAC number before this feature existed have no explicit status yet, so we
+// treat "unverified + has a CAC number" as an implicit "pending" bucket —
+// this surfaces their submissions in the review queue with no migration needed.
+const cacProvided = { cacNumber: { $exists: true, $ne: "" } };
+const noStatusYet = {
+  $or: [{ verificationStatus: { $exists: false } }, { verificationStatus: "unverified" }],
+};
+
+export const employerVerificationBucketQuery = (bucket) => {
+  if (bucket === "pending") return { $and: [noStatusYet, cacProvided] };
+  if (bucket === "unverified") {
+    return { $and: [noStatusYet, { $or: [{ cacNumber: { $exists: false } }, { cacNumber: "" }] }] };
+  }
+  if (bucket === "verified") return { verificationStatus: "verified" };
+  if (bucket === "rejected") return { verificationStatus: "rejected" };
+  return {}; // "all"
+};
+
+// GET /api/superadmin/employer-verifications?status=pending&search=&page=1&limit=20
+export const getEmployerVerifications = async (req, res) => {
+  try {
+    const { status = "pending", search = "", page = 1, limit = 20 } = req.query;
+    const pageNum = Math.max(1, Number(page));
+    const limitNum = Math.min(100, Math.max(1, Number(limit)));
+    const skip = (pageNum - 1) * limitNum;
+
+    const query = employerVerificationBucketQuery(status);
+    if (search.trim()) {
+      const re = new RegExp(search.trim(), "i");
+      query.$and = [...(query.$and || []), { $or: [{ fullName: re }, { email: re }, { companyName: re }] }];
+    }
+
+    const [employers, total, pendingCount, verifiedCount, rejectedCount, unverifiedCount, allCount] =
+      await Promise.all([
+        Employer.find(query)
+          .select(
+            "fullName email companyName companyEmail industry state logo cacNumber verificationStatus verificationNote verifiedAt createdAt",
+          )
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limitNum)
+          .lean(),
+        Employer.countDocuments(query),
+        Employer.countDocuments(employerVerificationBucketQuery("pending")),
+        Employer.countDocuments(employerVerificationBucketQuery("verified")),
+        Employer.countDocuments(employerVerificationBucketQuery("rejected")),
+        Employer.countDocuments(employerVerificationBucketQuery("unverified")),
+        Employer.countDocuments({}),
+      ]);
+
+    return res.json({
+      employers,
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum),
+      counts: {
+        pending: pendingCount,
+        verified: verifiedCount,
+        rejected: rejectedCount,
+        unverified: unverifiedCount,
+        all: allCount,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Get employer verifications error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// PATCH /api/superadmin/employer-verifications/:id  { status, note }
+export const updateEmployerVerification = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, note = "" } = req.body;
+    const VALID = ["unverified", "pending", "verified", "rejected"];
+    if (!VALID.includes(status)) {
+      return res.status(400).json({ message: "Invalid verification status" });
+    }
+
+    const update = {
+      verificationStatus: status,
+      verificationNote: note,
+      verifiedAt: status === "verified" ? new Date() : null,
+      verifiedBy: ["verified", "rejected"].includes(status) ? req.admin.id : null,
+    };
+
+    const employer = await Employer.findByIdAndUpdate(id, { $set: update }, { new: true })
+      .select("-password -__v")
+      .lean();
+
+    if (!employer) return res.status(404).json({ message: "Employer not found" });
+    return res.json({ message: `Employer marked as ${status}`, employer });
+  } catch (err) {
+    console.error("❌ Update employer verification error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// DELETE /api/superadmin/employer-verifications/:id — revoke back to unverified
+export const resetEmployerVerification = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employer = await Employer.findByIdAndUpdate(
+      id,
+      { $set: { verificationStatus: "unverified", verificationNote: "", verifiedAt: null, verifiedBy: null } },
+      { new: true },
+    )
+      .select("-password -__v")
+      .lean();
+
+    if (!employer) return res.status(404).json({ message: "Employer not found" });
+    return res.json({ message: "Verification reset", employer });
+  } catch (err) {
+    console.error("❌ Reset employer verification error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 // PATCH /api/superadmin/users/:id  { role, ...fields }
 export const updateUser = async (req, res) => {
   try {
