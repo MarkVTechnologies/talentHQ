@@ -80,9 +80,12 @@ jobs:
       - name: Health check
         run: |
           sleep 15
-          code=$(curl -s -o /dev/null -w '%{http_code}' https://api.talenthq.buzz/ || true)
-          echo "API responded with HTTP $code"
-          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+          # /healthz returns 200 only when the DB is connected, 503 otherwise.
+          code=$(curl -s -o /tmp/health.json -w '%{http_code}' https://api.talenthq.buzz/healthz || true)
+          echo "API /healthz responded with HTTP $code"
+          cat /tmp/health.json 2>/dev/null || true
+          echo
+          if [ "$code" != "200" ]; then
             echo "::error::API not healthy after deploy (HTTP $code). Check DirectAdmin → Node.js App logs."
             exit 1
           fi

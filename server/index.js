@@ -4,6 +4,9 @@
 import { checkEnv } from "./utils/env-check.js";
 checkEnv();
 
+import { initSentry, captureException } from "./utils/sentry.js";
+initSentry(); // no-op unless SENTRY_DSN is set
+
 import http from "http";
 import express from "express";
 import mongoose from "mongoose";
@@ -166,11 +169,28 @@ if (process.env.NODE_ENV !== "production") {
   app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 }
 
-// ── Health check ──────────────────────────────────────────────────────────────
+// ── Health checks ─────────────────────────────────────────────────────────────
+// "/" is the lightweight keep-warm ping (hit every minute by the host cron).
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
     environment: process.env.NODE_ENV || "development",
+  });
+});
+
+// "/healthz" is the real probe: reports DB connectivity and returns 503 when the
+// database is down, so the deploy's health check (and any uptime monitor) can
+// tell "Express is up" apart from "the app can actually serve requests".
+app.get("/healthz", (req, res) => {
+  const states = ["disconnected", "connected", "connecting", "disconnecting"];
+  const dbState = mongoose.connection.readyState;
+  const dbOk = dbState === 1;
+  res.status(dbOk ? 200 : 503).json({
+    status: dbOk ? "ok" : "degraded",
+    db: states[dbState] || "unknown",
+    uptime: Math.floor(process.uptime()),
+    environment: process.env.NODE_ENV || "development",
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -209,6 +229,8 @@ app.use((err, req, res, next) => {
   console.error("❌ Unhandled error:", err.message);
   if (err.message?.startsWith("CORS:"))
     return res.status(403).json({ message: err.message });
+  captureException(err); // report to Sentry when configured
+
   res.status(500).json({
     message:
       process.env.NODE_ENV === "production"
