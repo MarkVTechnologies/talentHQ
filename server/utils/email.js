@@ -188,7 +188,7 @@ function emailHtml(body) {
 }
 
 // ── Internal send helper ───────────────────────────────────────────────────
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, headers }) {
   // Replies to system emails (verify, reset, welcome, status, interview) should
   // reach a monitored inbox rather than the unmonitored noreply@ from-address.
   const REPLY_TO = process.env.ADMIN_EMAIL || "hello@talenthq.buzz";
@@ -199,6 +199,7 @@ async function sendEmail({ to, subject, html }) {
     reply_to: REPLY_TO,
     subject,
     html,
+    ...(headers ? { headers } : {}),
   });
 
   if (error) {
@@ -524,6 +525,102 @@ export async function sendInterviewResponseEmail(
         Manage all your interviews from your
         <a href="${dashLink}" style="color:#004b23;">employer dashboard</a>.
       </p>
+    `),
+  });
+}
+
+// ── Re-engagement nudges (sent by scripts/sendNudges.js) ───────────────────
+// Every nudge carries an unsubscribe link + List-Unsubscribe header so Gmail
+// shows its native "Unsubscribe" button instead of users hitting "Spam".
+const esc = (v = "") =>
+  String(v).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+  );
+
+function nudgeFooter(unsubscribeUrl) {
+  return `
+      <hr class="divider" />
+      <p class="note">
+        Don't want these reminders?
+        <a href="${unsubscribeUrl}" style="color:#9ca3af;">Unsubscribe</a>.
+      </p>`;
+}
+
+function unsubHeaders(unsubscribeUrl) {
+  return {
+    "List-Unsubscribe": `<${unsubscribeUrl}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}
+
+export async function sendVerifyNudgeEmail(to, fullName, token, unsubscribeUrl) {
+  const firstName = esc((fullName || "").split(" ")[0] || "there");
+  const link = `${FRONTEND}/verify-email?token=${token}`;
+  return sendEmail({
+    to,
+    subject: "One step left: verify your TalentHQ account",
+    headers: unsubHeaders(unsubscribeUrl),
+    html: emailHtml(`
+      <h1>Hi ${firstName}, you're almost in</h1>
+      <p>
+        You created a TalentHQ account but haven't verified your email yet.
+        Verified accounts get more attention from employers.
+      </p>
+      <a href="${link}" class="btn">Verify My Account</a>
+      <p class="note">This link expires in <strong>24 hours</strong>. We'll send a fresh one next time if you miss it.</p>
+      <p class="link-fallback">Link not working? Copy and paste this into your browser:<br />${link}</p>
+      ${nudgeFooter(unsubscribeUrl)}
+    `),
+  });
+}
+
+export async function sendCreateApplicationNudgeEmail(to, fullName, unsubscribeUrl) {
+  const firstName = esc((fullName || "").split(" ")[0] || "there");
+  const link = `${FRONTEND}/dashboard/jobseeker/applications?new=1`;
+  return sendEmail({
+    to,
+    subject: "Employers can't find you yet. Create your application",
+    headers: unsubHeaders(unsubscribeUrl),
+    html: emailHtml(`
+      <h1>Hi ${firstName}, let employers find you</h1>
+      <p>
+        Your TalentHQ account is ready, but you haven't created an application yet.
+        It takes about 2 minutes: tell us the role you want and where you'd like to work,
+        and we'll start matching you with jobs.
+      </p>
+      <a href="${link}" class="btn">Create My Application</a>
+      <p class="link-fallback">Link not working? Copy and paste this into your browser:<br />${link}</p>
+      ${nudgeFooter(unsubscribeUrl)}
+    `),
+  });
+}
+
+export async function sendJobMatchNudgeEmail(to, fullName, roleTitle, jobs, unsubscribeUrl) {
+  const firstName = esc((fullName || "").split(" ")[0] || "there");
+  const browseLink = `${FRONTEND}/findjob`;
+  const rows = jobs
+    .map(
+      (j) => `
+      <div class="detail-row">
+        <div>
+          <a href="${FRONTEND}/findjob/${j._id}" style="color:#004b23;font-weight:700;text-decoration:none;">${esc(j.title)}</a><br />
+          <span style="color:#6b7280;font-size:13px;">${esc([j.companyName, j.location, j.type].filter(Boolean).join(" · "))}</span>
+        </div>
+      </div>`,
+    )
+    .join("");
+  const n = jobs.length;
+  return sendEmail({
+    to,
+    subject: `${n} new job${n > 1 ? "s" : ""} matching "${roleTitle}"`,
+    headers: unsubHeaders(unsubscribeUrl),
+    html: emailHtml(`
+      <h1>Hi ${firstName}, new jobs match your application</h1>
+      <p>Based on your application for <strong>${esc(roleTitle)}</strong>, these jobs were posted recently:</p>
+      ${rows}
+      <br />
+      <a href="${browseLink}" class="btn">See All Jobs</a>
+      ${nudgeFooter(unsubscribeUrl)}
     `),
   });
 }

@@ -1,0 +1,84 @@
+# Deploys the Express API (server/) to the go54 DirectAdmin Node.js app at
+# https://api.talenthq.buzz whenever server code changes on main.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   FTP_SERVER     e.g. the DirectAdmin server hostname (or 102.68.97.69)
+#   FTP_USERNAME   DirectAdmin FTP user (e.g. eandjpr1)
+#   FTP_PASSWORD   its password
+#   FTP_SERVER_DIR path of the app root as seen over FTP, with trailing slash
+#                  (usually "talenthq-api/" or "/home/eandjpr1/talenthq-api/")
+#
+# Restart: Passenger restarts the app when tmp/restart.txt changes, so the
+# workflow writes a fresh timestamp into it on every deploy.
+# Dependencies: node_modules is never uploaded (CloudLinux manages it). If
+# package.json changed, click "Run NPM Install" in DirectAdmin → Node.js App.
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/deploy-api.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Syntax check
+        working-directory: server
+        run: |
+          for f in $(git ls-files '*.js' '*.cjs'); do node --check "$f"; done
+
+      - name: Warn if dependencies changed
+        run: |
+          if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -qE '^server/package(-lock)?\.json$'; then
+            echo "::warning title=Run NPM Install::server/package.json changed. Open DirectAdmin → Node.js App → Run NPM Install, then Restart."
+          fi
+
+      - name: Mark restart
+        run: |
+          mkdir -p server/tmp
+          date -u +%FT%TZ > server/tmp/restart.txt
+
+      - name: Upload over FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: ${{ secrets.FTP_SERVER_DIR }}
+          local-dir: ./server/
+          protocol: ftps # switch to "ftp" if the server's TLS certificate is rejected
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            node_modules
+            .env
+            .env.*
+            uploads/**
+            nodemon.json
+
+      - name: Health check
+        run: |
+          sleep 15
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://api.talenthq.buzz/ || true)
+          echo "API responded with HTTP $code"
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "::error::API not healthy after deploy (HTTP $code). Check DirectAdmin → Node.js App logs."
+            exit 1
+          fi

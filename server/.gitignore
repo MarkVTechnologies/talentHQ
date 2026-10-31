@@ -63,3 +63,5 @@ google-credentials*.json
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+# Passenger restart marker (written by the deploy workflow)
+tmp/

@@ -503,6 +503,10 @@ export default function ApplicationsPage() {
 
   useEffect(() => {
     fetchApplications();
+    // Reminder emails link here with ?new=1 to open the form straight away
+    if (new URLSearchParams(window.location.search).get("new") === "1") {
+      setShowForm(true);
+    }
   }, []);
 
   const handleDelete = async () => {

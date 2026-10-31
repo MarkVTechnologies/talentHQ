@@ -38,6 +38,7 @@ import paymentRoutes from "./routes/paymentRoutes.js";
 import statsRoutes from "./routes/statsRoutes.js";
 import jobseekerRoutes from "./routes/jobseekerRoutes.js";
 import announcementRoutes from "./routes/announcementRoutes.js";
+import nudgeRoutes from "./routes/nudgeRoutes.js";
 
 const app = express();
 
@@ -194,6 +195,7 @@ app.use("/api/flags", flagRoutes);
 app.use("/api/announcements", announcementRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/stats", statsRoutes);
+app.use("/api/nudges", nudgeRoutes);
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((req, res) => {
