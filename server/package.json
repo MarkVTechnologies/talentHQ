@@ -10,7 +10,9 @@
   "scripts": {
     "build": "echo \"No build step required\"",
     "dev": "nodemon",
-    "start": "node -r dotenv/config index.js"
+    "start": "node -r dotenv/config index.js",
+    "nudges": "node scripts/sendNudges.js",
+    "nudges:dry": "node scripts/sendNudges.js --dry-run"
   },
   "keywords": [],
   "author": "",
