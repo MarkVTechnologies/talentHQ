@@ -41,7 +41,11 @@ jobs:
       - name: Syntax check
         working-directory: server
         run: |
-          for f in $(git ls-files '*.js' '*.cjs'); do node --check "$f"; done
+          # Our own source only — never node_modules (vendored/minified files
+          # fail node --check and aren't ours to validate).
+          for f in $(git ls-files '*.js' '*.cjs' ':!:**/node_modules/**'); do
+            node --check "$f"
+          done
 
       - name: Warn if dependencies changed
         run: |
